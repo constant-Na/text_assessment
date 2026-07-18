@@ -30,7 +30,6 @@ def load_and_process_word_data(file_path='word_data.xlsx'):
         
     def generate_word_set(grade_data):
         word_list = []
-        # [수정 1-1] NaN으로 인한 float 승격 방지 및 Int64 캐스팅
         어깨번호 = grade_data['표준동형어번호수정'].astype('Int64').astype(str).replace('<NA>', '')
         어깨번호_추가_단어 = grade_data['어휘'] + 어깨번호
         list_zip = list(zip(어깨번호_추가_단어, grade_data['품사']))
@@ -49,11 +48,9 @@ def load_and_process_word_data(file_path='word_data.xlsx'):
                 split_tags = clean_pos.split('/')
                 for tag in split_tags:
                     eng_tag = pos_mapping.get(tag, 'UNK')
-                    # [수정 1-2] 원본 word 오염 방지를 위한 지역 변수 w 사용
                     w = re.sub(r'다(\d*)$', r'\1', str(word)) if eng_tag in ['VV', 'VA', 'VX'] else str(word)
                     word_list.append((w, eng_tag))
         
-        # [수정 2-2] O(1) 탐색을 위해 list를 set으로 변환하여 반환
         return set(word_list)
 
     w1 = generate_word_set(word_data[word_data['등급'] == '1등급'])
@@ -81,8 +78,6 @@ def calculate_diversity(text):
     return round(ttr, 3), round(mattr, 3)
 
 def is_real_VP(morp_result):
-    """[수정 1-3] 보조 용언 구성 제거: 명시적 태그 파싱"""
-    # morp_result 예: "하/VV+지/VX+않/VX+다/EF"
     tags = set(re.findall(r'/([A-Z]+)', str(morp_result)))
     return ('VX' not in tags or 'VV' in tags or 'VA' in tags or 'VCP' in tags or 'VCN' in tags)
 
@@ -106,6 +101,11 @@ def calc_embedding_logic(dep, sentence, dep_id2label, clause_list):
     return score
 
 def calculate_syntactic_complexity(sentences_data):
+    """전체 텍스트의 통사적 복잡도를 산출하고 문장 수로 평균을 냅니다."""
+    num_sentences = len(sentences_data)
+    if num_sentences == 0:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
+        
     total_basic = total_add1 = total_add2 = total_add3 = 0
     clause_list = ['VP_SBJ', 'VNP_SBJ', 'VP_OBJ', 'VNP_OBJ', 'VP_CNJ', 'VNP_CNJ', 'VP_MOD', 'VNP_MOD', 'VP_AJT', 'VNP_AJT', 'VP_CMP', 'VNP_CMP']
 
@@ -170,7 +170,6 @@ def calculate_syntactic_complexity(sentences_data):
                 if is_real_VP(morp.get('result', '')):
                     if num < len(morp_eval) - 1:
                         next_morp = morp_eval[num+1].get('result', '')
-                        # [수정 1-3과 동일] 명시적 태그 파싱 적용
                         next_tags = set(re.findall(r'/([A-Z]+)', str(next_morp)))
                         if ('VX' in next_tags) and not any(t in next_tags for t in ['VV', 'VA', 'VCP', 'VCN']):
                             if (dependency[num+1]['label'] in ['VP', 'VNP', 'VP_PRN', 'VNP_PRN']) and (dependency[num+1].get('head') != -1):
@@ -180,8 +179,14 @@ def calculate_syntactic_complexity(sentences_data):
         if add3_score > 7: add3_score = 7
         total_add3 += add3_score
 
-    total_sum = total_basic + total_add1 + total_add2 + total_add3
-    return total_basic, total_add1, total_add2, total_add3, total_sum
+    # [수정] 합산된 총점을 문장 수로 나누어 평균 계산
+    avg_basic = total_basic / num_sentences
+    avg_add1 = total_add1 / num_sentences
+    avg_add2 = total_add2 / num_sentences
+    avg_add3 = total_add3 / num_sentences
+    avg_sum = avg_basic + avg_add1 + avg_add2 + avg_add3
+
+    return round(avg_basic, 3), round(avg_add1, 3), round(avg_add2, 3), round(avg_add3, 3), round(avg_sum, 3)
 
 # ==========================================
 # [3] 웹 화면 UI 구성 및 메인 실행부
@@ -222,7 +227,6 @@ if uploaded_file is not None:
                 openApiURL = "http://epretx.etri.re.kr:8000/api/WiseNLU"
                 analysisCode = "dparse"
                 
-                # [수정 2-1] HTTP Timeout 및 Retry 설정
                 retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
                 http = urllib3.PoolManager(retries=retries, timeout=urllib3.Timeout(connect=5.0, read=30.0))
                 
@@ -257,7 +261,6 @@ if uploaded_file is not None:
                                 analyze_result.append((morp['text'] + morp['scode'][1:], morp['type']))
 
                         count1 = count2 = count3 = count4 = count5 = 0
-                        # [수정 2-2] O(1) 탐색
                         for wp in analyze_result:
                             if wp in word1_set: count1 += 1
                             elif wp in word2_set: count2 += 1
@@ -284,8 +287,10 @@ if uploaded_file is not None:
 
                 df['1등급 어휘 개수'] = r1_list; df['2등급 어휘 개수'] = r2_list; df['3등급 어휘 개수'] = r3_list
                 df['4등급 어휘 개수'] = r4_list; df['5등급 어휘 개수'] = r5_list; df['어휘 등급 평균'] = rank_list
-                df['기본 형식 복잡도'] = syn_basic; df['수식 구조 복잡도'] = syn_add1; df['내포 구조 복잡도'] = syn_add2
-                df['접속 구조 복잡도'] = syn_add3; df['통사적 복잡도 총합'] = syn_sum
+                
+                # [수정] 엑셀 컬럼명에 '(평균)' 명시
+                df['기본 형식 복잡도(평균)'] = syn_basic; df['수식 구조 복잡도(평균)'] = syn_add1; df['내포 구조 복잡도(평균)'] = syn_add2
+                df['접속 구조 복잡도(평균)'] = syn_add3; df['통사적 복잡도 총합(평균)'] = syn_sum
                 
                 st.success("분석이 완료되었습니다!")
                 st.subheader("2. 최종 종합 분석 결과 확인")
