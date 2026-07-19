@@ -78,7 +78,9 @@ def calculate_diversity(text):
     return round(ttr, 3), round(mattr, 3)
 
 def is_real_VP(morp_result):
-    tags = set(re.findall(r'/([A-Z]+)', str(morp_result)))
+    # 불규칙(-I), 규칙(-R) 기호 먼저 제거
+    clean_morp = str(morp_result).replace('-R', '').replace('-I', '')
+    tags = set(re.findall(r'/([A-Z]+)', clean_morp))
     return ('VX' not in tags or 'VV' in tags or 'VA' in tags or 'VCP' in tags or 'VCN' in tags)
 
 def calc_embedding_logic(dep, sentence, dep_id2label, clause_list):
@@ -170,7 +172,9 @@ def calculate_syntactic_complexity(sentences_data):
                 if is_real_VP(morp.get('result', '')):
                     if num < len(morp_eval) - 1:
                         next_morp = morp_eval[num+1].get('result', '')
-                        next_tags = set(re.findall(r'/([A-Z]+)', str(next_morp)))
+                        # 불규칙(-I), 규칙(-R) 기호 제거
+                        clean_next_morp = str(next_morp).replace('-R', '').replace('-I', '')
+                        next_tags = set(re.findall(r'/([A-Z]+)', clean_next_morp))
                         if ('VX' in next_tags) and not any(t in next_tags for t in ['VV', 'VA', 'VCP', 'VCN']):
                             if (dependency[num+1]['label'] in ['VP', 'VNP', 'VP_PRN', 'VNP_PRN']) and (dependency[num+1].get('head') != -1):
                                 add3_score += 1
@@ -258,7 +262,9 @@ if uploaded_file is not None:
                         analyze_result = []
                         for sent in sentences_data:
                             for morp in sent.get('WSD', []):
-                                analyze_result.append((morp['text'] + morp['scode'][1:], morp['type']))
+                                # 불규칙(-I), 규칙(-R) 기호 제거 후 사전에 매핑
+                                clean_type = morp['type'].replace('-R', '').replace('-I', '')
+                                analyze_result.append((morp['text'] + morp['scode'][1:], clean_type))
 
                         count1 = count2 = count3 = count4 = count5 = 0
                         for wp in analyze_result:
